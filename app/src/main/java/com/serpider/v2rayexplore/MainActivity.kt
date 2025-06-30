@@ -7,6 +7,10 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.serpider.v2rayexplore.databinding.ActivityMainBinding
+import com.serpider.v2rayexplore.utils.ConfigType
+import com.serpider.v2rayexplore.utils.DetectConfigType
+import org.json.JSONException
+import org.json.JSONObject
 
 class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
@@ -34,12 +38,34 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun handleConnection() {
-        val configValue = binding.etConfig.text.toString().trim()
-        when {
-            configValue.isEmpty() -> {
-                Toast.makeText(this,"Paste your v2ray config here", Toast.LENGTH_SHORT).show()
-            }
+        val config = binding.etConfig.text.toString().trim()
 
+        if (config.isEmpty()) {
+            Toast.makeText(this, "Paste v2ray config", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val configType = DetectConfigType.checkType(config)
+
+        when (configType) {
+            ConfigType.JSON -> {
+                Toast.makeText(this, "JSON ${configType}", Toast.LENGTH_SHORT).show()
+            }
+            ConfigType.VMESS -> {
+                Toast.makeText(this, "VMESS ${configType}", Toast.LENGTH_SHORT).show()
+            }
+            ConfigType.VLESS -> {
+                Toast.makeText(this, "VLESS ${configType}", Toast.LENGTH_SHORT).show()
+            }
+            ConfigType.TROJAN -> {
+                Toast.makeText(this, "TROJAN ${configType}", Toast.LENGTH_SHORT).show()
+            }
+            ConfigType.SHADOWSOCKS -> {
+                Toast.makeText(this, "SHADOWSOCKS ${configType}", Toast.LENGTH_SHORT).show()
+            }
+            ConfigType.UNKNOWN -> {
+                Toast.makeText(this, "Invalid config ${configType}", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 }
+

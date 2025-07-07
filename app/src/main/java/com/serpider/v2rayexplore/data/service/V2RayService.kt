@@ -26,15 +26,11 @@ class V2RayService : VpnService() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForeground(NOTIFICATION_ID, createNotification())
 
-        // ساخت تونل VPN
         val builder = Builder()
         builder.addAddress("10.0.0.2", 32)
         builder.addRoute("0.0.0.0", 0)
         builder.setSession("V2Ray VPN")
         val vpnInterface = builder.establish()
-
-        // الان تونل ساخته شد و ترافیک به سمت این اینترفیس هدایت می‌شود
-        // شما باید V2Ray core را هم اینجا استارت کنید که دیتا را از این تونل بخواند و به سرور بفرستد.
 
         return START_STICKY
     }

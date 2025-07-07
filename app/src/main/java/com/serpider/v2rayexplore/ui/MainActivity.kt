@@ -1,103 +1,194 @@
 package com.serpider.v2rayexplore.ui
 
-
+// In MainActivity.kt
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.net.VpnService
 import android.os.Bundle
+import android.os.Build
+import android.util.Log
+import android.widget.Button
+import android.widget.EditText
+import android.widget.TextView
 import android.widget.Toast
-import androidx.activity.enableEdgeToEdge
-import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
-import androidx.lifecycle.lifecycleScope
 import com.serpider.v2rayexplore.R
-import com.serpider.v2rayexplore.data.model.ConnectionState
-import com.serpider.v2rayexplore.data.service.V2RayService
-import com.serpider.v2rayexplore.databinding.ActivityMainBinding
-import com.serpider.v2rayexplore.ui.MainViewModel
+import com.serpider.v2rayexplore.data.service.V2RayVpnService
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.BufferedReader
+import java.io.InputStreamReader
+
+// Add this import for ContextCompat
+import androidx.core.content.ContextCompat
 
 class MainActivity : AppCompatActivity() {
-    private lateinit var binding: ActivityMainBinding
-    private val viewModel: MainViewModel by viewModels()
+
+    private lateinit var etConfig: EditText
+    private lateinit var btnToggleVpn: Button
+    private lateinit var tvStatus: TextView
+    private lateinit var btnPing: Button
+    private lateinit var tvPingResult: TextView
+
+    private var isVpnConnected = false
+
+    // BroadcastReceiver for VPN status updates
+    private val vpnStatusReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == "com.serpider.v2rayexplore.VPN_STATUS_UPDATE") {
+                val isConnected = intent.getBooleanExtra("is_connected", false)
+                updateVpnStatus(isConnected)
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
-        binding = ActivityMainBinding.inflate(layoutInflater)
-        setContentView(binding.root)
+        setContentView(R.layout.activity_main)
 
-        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main)) { v, insets ->
-            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
-            insets
+        etConfig = findViewById(R.id.et_config)
+        btnToggleVpn = findViewById(R.id.btn_toggle_vpn)
+        tvStatus = findViewById(R.id.tv_status)
+        btnPing = findViewById(R.id.btn_ping)
+        tvPingResult = findViewById(R.id.tv_ping_result)
+
+        etConfig.setText("vless://f73e9865-80c3-45ba-8391-597139c37bdc@91.99.129.82:443?security=&encryption=none&host=exo.ir&headerType=http&type=tcp# https://t.me/ConfigV2box")
+
+        // بازیابی کانفیگ ذخیره شده
+        val savedConfig = getSharedPreferences("vpn_prefs", Context.MODE_PRIVATE)
+            .getString("v2ray_config", "")
+        //etConfig.setText(savedConfig)
+
+        btnToggleVpn.setOnClickListener {
+            if (isVpnConnected) {
+                stopVpnService()
+            } else {
+                startVpnService()
+            }
         }
 
-        setupClickListeners()
-        observeViewModel()
+        btnPing.setOnClickListener {
+            executePing("8.8.8.8", 4)
+        }
+
+        // Register the BroadcastReceiver with compatibility flag
+        val filter = IntentFilter("com.serpider.v2rayexplore.VPN_STATUS_UPDATE")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) { // API 33, Tiramisu
+            // For API 33+, explicit receiver exported state is often required even for ContextCompat.registerReceiver
+            ContextCompat.registerReceiver(this, vpnStatusReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) { // API 31, S (Snow Cone)
+            // For API 31 and 32, Context.RECEIVER_NOT_EXPORTED is available
+            registerReceiver(vpnStatusReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            // For older Android versions, no flag needed
+            registerReceiver(vpnStatusReceiver, filter)
+        }
+
+
+        // بررسی وضعیت فعلی VPN (اختیاری: نیاز به بررسی دقیق‌تر سرویس)
+        updateVpnStatus(false)
     }
 
-    private fun setupClickListeners() {
-        binding.btnConnection.setOnClickListener {
-            when (viewModel.connectionState.value) {
-                is ConnectionState.Disconnected -> {
-                    val config = binding.etConfig.text.toString().trim()
-                    viewModel.connect(config)
+    override fun onDestroy() {
+        super.onDestroy()
+        unregisterReceiver(vpnStatusReceiver) // Unregister to prevent memory leaks
+    }
+
+    private fun startVpnService() {
+        val config = etConfig.text.toString().trim()
+        if (config.isEmpty()) {
+            Toast.makeText(this, "Please paste V2Ray config", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        // ذخیره کانفیگ
+        getSharedPreferences("vpn_prefs", Context.MODE_PRIVATE)
+            .edit()
+            .putString("v2ray_config", config)
+            .apply()
+
+        // درخواست مجوز VPN
+        val vpnIntent = VpnService.prepare(this)
+        if (vpnIntent != null) {
+            startActivityForResult(vpnIntent, VPN_PERMISSION_REQUEST_CODE)
+        } else {
+            // مجوز قبلاً داده شده یا نیازی نیست
+            onActivityResult(VPN_PERMISSION_REQUEST_CODE, RESULT_OK, null)
+        }
+    }
+
+    private fun stopVpnService() {
+        val intent = Intent(this, V2RayVpnService::class.java)
+        stopService(intent)
+        updateVpnStatus(false) // Optimistically update UI to disconnected
+        Toast.makeText(this, "VPN Disconnected", Toast.LENGTH_SHORT).show()
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == VPN_PERMISSION_REQUEST_CODE) {
+            if (resultCode == RESULT_OK) {
+                val config = etConfig.text.toString().trim()
+                val intent = Intent(this, V2RayVpnService::class.java).apply {
+                    putExtra("config_data", config)
                 }
-                is ConnectionState.Connected -> {
-                    viewModel.disconnect()
-                    stopService(Intent(this, V2RayService::class.java))
+                startService(intent)
+                // Do NOT update UI to connected here. V2RayVpnService will send a broadcast.
+                Toast.makeText(this, "VPN Connecting...", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this, "VPN permission denied", Toast.LENGTH_SHORT).show()
+                updateVpnStatus(false)
+            }
+        }
+    }
+
+    private fun updateVpnStatus(isConnected: Boolean) {
+        isVpnConnected = isConnected
+        if (isConnected) {
+            tvStatus.text = "Status: Connected"
+            btnToggleVpn.text = "Disconnect"
+        } else {
+            tvStatus.text = "Status: Disconnected"
+            btnToggleVpn.text = "Connect"
+        }
+    }
+
+    private fun executePing(host: String, count: Int) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                withContext(Dispatchers.Main) {
+                    tvPingResult.text = "Pinging $host..."
                 }
-                else -> {}
-            }
-        }
 
-        binding.txtPing.setOnClickListener {
-            viewModel.ping()
-        }
-    }
-
-    private fun observeViewModel() {
-        lifecycleScope.launch {
-            viewModel.connectionState.collect { state ->
-                updateUI(state)
-            }
-        }
-
-        lifecycleScope.launch {
-            viewModel.isLoading.collect { isLoading ->
-                binding.btnConnection.text = if (isLoading) "Connecting..." else getButtonText()
-                binding.btnConnection.isEnabled = !isLoading
-            }
-        }
-
-        lifecycleScope.launch {
-            viewModel.toastMessage.collect { message ->
-                message?.let {
-                    Toast.makeText(this@MainActivity, it, Toast.LENGTH_SHORT).show()
-                    viewModel.clearToastMessage()
+                val command = "ping -c $count $host"
+                val process = Runtime.getRuntime().exec(command)
+                val reader = BufferedReader(InputStreamReader(process.inputStream))
+                val output = StringBuilder()
+                var line: String?
+                while (reader.readLine().also { line = it } != null) {
+                    output.append(line).append("\n")
                 }
+                process.waitFor()
+
+                withContext(Dispatchers.Main) {
+                    tvPingResult.text = output.toString()
+                    Toast.makeText(applicationContext, "Ping complete!", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    tvPingResult.text = "Error during ping: ${e.message}"
+                    Toast.makeText(applicationContext, "Ping failed: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+                Log.e("PingTest", "Error during ping: ${e.message}", e)
             }
         }
     }
 
-    private fun updateUI(state: ConnectionState) {
-        binding.btnConnection.text = getButtonText()
-
-        when (state) {
-            is ConnectionState.Connected -> {
-                startService(Intent(this, V2RayService::class.java))
-            }
-            else -> {}
-        }
-    }
-
-    private fun getButtonText(): String {
-        return when (viewModel.connectionState.value) {
-            is ConnectionState.Disconnected -> "Connect"
-            is ConnectionState.Connected -> "Disconnect"
-            is ConnectionState.Connecting -> "Connecting..."
-            is ConnectionState.Error -> "Connect"
-        }
+    companion object {
+        private const val VPN_PERMISSION_REQUEST_CODE = 1001
     }
 }

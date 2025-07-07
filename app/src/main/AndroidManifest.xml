@@ -1,13 +1,12 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Your existing permissions -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.BIND_VPN_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <uses-permission android:name="android.permission.BIND_VPN_SERVICE"
-        tools:ignore="ProtectedPermissions" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_VPN" />
 
     <application
         android:allowBackup="true"
@@ -19,19 +18,6 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.V2RayExplore"
         tools:targetApi="34">
-
-        <service
-            android:name=".data.service.V2RayService"
-            android:permission="android.permission.BIND_VPN_SERVICE"
-            android:enabled="true"
-            android:exported="true"
-            android:foregroundServiceType="specialUse"
-            tools:ignore="ForegroundServicePermission">
-
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="vpn" />
-        </service>
         <activity
             android:name=".ui.MainActivity"
             android:exported="true">
@@ -41,6 +27,16 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <service
+            android:name=".data.service.V2RayVpnService"
+            android:permission="android.permission.BIND_VPN_SERVICE"
+            android:exported="true"
+            android:foregroundServiceType="specialUse"> <intent-filter>
+            <action android:name="android.net.VpnService" />
+        </intent-filter>
+        </service>
+
     </application>
 
 </manifest>
